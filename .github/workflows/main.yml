@@ -1,0 +1,45 @@
+name: macOS VNC via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-vnc:
+    runs-on: macos-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Install Tailscale
+        run: |
+          brew install tailscale
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-$GITHUB_RUN_ID
+
+      - name: Get Tailscale IP
+        id: get-ip
+        run: |
+          sleep 10
+          TS_IP=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_OUTPUT
+
+      - name: Enable Remote Management (VNC) on macOS
+        run: |
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvncpw -vncpw "yourpassword123" -restart -agent -privs -all
+          echo "VNC_PASSWORD=yourpassword123" >> $GITHUB_ENV
+
+      - name: Show Connection Info
+        run: |
+          echo ""
+          echo "=== macOS VNC Access ==="
+          echo "Address: ${{ steps.get-ip.outputs.TAILSCALE_IP }}"
+          echo "Port: 5900 (VNC)"
+          echo "Password: yourpassword123 (تغییر بده)"
+          echo "Client: RealVNC Viewer or NoMachine"
+          echo "=========================="
+
+      - name: Keep Alive
+        run: |
+          while true; do
+            echo "[$(date)] macOS VNC Active - Use VNC client"
+            sleep 300
+          done
