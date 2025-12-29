@@ -9,23 +9,38 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Install Tailscale
+      - name: Install Tailscale CLI
+        run: brew install tailscale
+
+      - name: Start Tailscale daemon manually
         run: |
-          brew install tailscale
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-$GITHUB_RUN_ID
+          # tailscaled رو دستی در background اجرا کن (بدون brew services)
+          sudo tailscaled --cleanup  # پاکسازی قبلی اگر باشه
+          nohup sudo tailscaled --tun=userspace-networking --state=/tmp/tailscaled.state > /tmp/tailscaled.log 2>&1 &
+          sleep 5  # صبر کن daemon بالا بیاد
+
+      - name: Connect Tailscale
+        run: |
+          # صبر کن daemon آماده بشه
+          sleep 10
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-$GITHUB_RUN_ID --accept-routes
 
       - name: Get Tailscale IP
         id: get-ip
         run: |
           sleep 10
-          TS_IP=$(tailscale ip -4)
+          TS_IP=$(sudo tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_OUTPUT
 
-      - name: Enable Remote Management (VNC) on macOS
+      - name: Enable VNC on macOS
         run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvncpw -vncpw "yourpassword123" -restart -agent -privs -all
-          echo "VNC_PASSWORD=yourpassword123" >> $GITHUB_ENV
+          # فعال کردن VNC / Remote Management (با رمز ساده)
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -restart -agent -privs -all
+          # تنظیم رمز VNC (yourpassword123 رو تغییر بده)
+          echo "yourpassword123" | sudo tee /Library/Preferences/com.apple.VNCSettings.txt
+          sudo chown _applevncservice /Library/Preferences/com.apple.VNCSettings.txt
+          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
       - name: Show Connection Info
         run: |
@@ -34,12 +49,13 @@ jobs:
           echo "Address: ${{ steps.get-ip.outputs.TAILSCALE_IP }}"
           echo "Port: 5900 (VNC)"
           echo "Password: yourpassword123 (تغییر بده)"
-          echo "Client: RealVNC Viewer or NoMachine"
+          echo "Client: RealVNC Viewer, Screen Sharing (از مک) یا NoMachine"
+          echo "Note: اول ممکنه ۳۰-۶۰ ثانیه طول بکشه تا VNC آماده بشه"
           echo "=========================="
 
       - name: Keep Alive
         run: |
           while true; do
-            echo "[$(date)] macOS VNC Active - Use VNC client"
+            echo "[$(date)] macOS VNC Active - Connect via VNC client"
             sleep 300
           done
